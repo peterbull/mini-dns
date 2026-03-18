@@ -16,6 +16,7 @@
 
 static_assert(true, "header to fix bug causing clangd pragma warning");
 
+#pragma pack(push, 1)
 // read in reverse order since we have to flip big endian
 typedef struct dns_flags {
   uint16_t rcode : 4;
@@ -30,20 +31,26 @@ typedef struct dns_flags {
   uint16_t qr : 1;
 } dns_flags_t;
 
-#pragma pack(push, 1)
 typedef struct dns_header {
   uint16_t id;
   dns_flags_t flags;
+  uint16_t qdcount;
+  uint16_t ancount;
+  uint16_t nscount;
+  uint16_t arcount;
 } dns_header_t;
+
 #pragma pack(pop)
 
 int sockfd;
+
 void parse_header(char *buffer) {
   dns_header_t *header = (dns_header_t *)buffer;
   uint16_t id = ntohs(header->id);
+
   uint16_t raw_flags = ntohs(*(uint16_t *)&header->flags);
   dns_flags_t *flags = (dns_flags_t *)&raw_flags;
-  
+
   // extracting with bitshift & mask
   uint8_t qr = (raw_flags >> 15) & 0x1;
   uint8_t op = (raw_flags >> 11) & 0xF;
@@ -78,6 +85,24 @@ void parse_header(char *buffer) {
   printf("ad: %d\n", flags->ad);
   printf("cd: %d\n", flags->cd);
   printf("rcode: %d\n", flags->rcode);
+
+  // other headers
+  uint16_t qdcount = ntohs(header->qdcount);
+  uint16_t ancount = ntohs(header->ancount);
+  uint16_t nscount = ntohs(header->nscount);
+  uint16_t arcount = ntohs(header->arcount);
+
+  printf("qdcount %d\n", qdcount);
+  printf("ancount %d\n", ancount);
+  printf("nscount %d\n", nscount);
+  printf("arcount %d\n", arcount);
+
+  uint8_t *qname = (uint8_t *)buffer + sizeof(dns_header_t);
+
+  while (*qname != 0) {
+    qname += *qname + 1;
+  }
+  printf("break");
 }
 
 void sig_handler(int signum) {
@@ -124,6 +149,7 @@ int main() {
     recvfrom(sockfd, buffer, 1024, 0, (struct sockaddr *)&client_addr,
              &addr_size);
     parse_header(buffer);
+
     memset(buffer, '\0', 1024);
     strcpy(buffer, "dns server running");
     sendto(sockfd, buffer, 1024, 0, (struct sockaddr *)&client_addr,
